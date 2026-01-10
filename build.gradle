@@ -39,10 +39,13 @@ dependencies {
 	// Fabric API. This is technically optional, but you probably want it anyway.
 	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
 
-	implementation 'org.apache.httpcomponents.client5:httpclient5:5.2'
-	implementation 'org.apache.httpcomponents.core5:httpcore5:5.2'
-	modImplementation 'org.apache.httpcomponents.client5:httpclient5:5.2'
-	modImplementation 'org.apache.httpcomponents.core5:httpcore5:5.2'
+	implementation 'org.apache.httpcomponents.client5:httpclient5:5.2.1'
+	implementation 'org.apache.httpcomponents.core5:httpcore5:5.2.1'
+	implementation 'org.apache.httpcomponents.core5:httpcore5-h2:5.2.1'
+
+	include 'org.apache.httpcomponents.client5:httpclient5:5.2.1'
+	include 'org.apache.httpcomponents.core5:httpcore5:5.2.1'
+	include 'org.apache.httpcomponents.core5:httpcore5-h2:5.2.1'
 }
 
 processResources {
