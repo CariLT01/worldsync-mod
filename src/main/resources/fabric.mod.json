@@ -3,9 +3,9 @@
 	"id": "world-sync",
 	"version": "${version}",
 	"name": "World Sync",
-	"description": "This is an example description! Tell everyone what your mod is about!",
+	"description": "Synchronize your world to the cloud!",
 	"authors": [
-		"Me!"
+		"CariLT01"
 	],
 	"contact": {
 		"homepage": "https://fabricmc.net/",
