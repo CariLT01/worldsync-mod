@@ -109,6 +109,7 @@ public class WorldUploader {
             Path absolutePath = this.path.resolve(fileLocation);
 
             HttpPost post = new HttpPost(Config.API_ENDPOINT + "/upload");
+            post.addHeader("User-Agent", Config.USER_AGENT);
 
             MultipartEntityBuilder builder = MultipartEntityBuilder.create();
             builder.addTextBody("path", fileLocation);
@@ -136,6 +137,7 @@ public class WorldUploader {
     private void deleteFile(String fileLocation, int worldId) throws Exception {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(new URI(Config.API_ENDPOINT + "/remove?world=" + worldId + "&path=" + fileLocation))
+                .header("User-Agent", Config.USER_AGENT)
                 .DELETE()
                 .build();
 
@@ -152,6 +154,7 @@ public class WorldUploader {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(new URI(Config.API_ENDPOINT + "/get_data?world=" + worldId))
                 .GET()
+                .header("User-Agent", Config.USER_AGENT)
                 .build();
 
         HttpResponse<String> res = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
@@ -207,6 +210,7 @@ public class WorldUploader {
     private void checkSessionExists(int worldId) throws Exception {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(new URI(Config.API_ENDPOINT + "/exists?world=" + worldId))
+                .header("User-Agent", Config.USER_AGENT)
                 .GET()
                 .build();
 
@@ -221,6 +225,7 @@ public class WorldUploader {
        HttpRequest request = HttpRequest.newBuilder()
                .uri(new URI(Config.API_ENDPOINT + "/create"))
                .POST(HttpRequest.BodyPublishers.ofString("{}"))
+               .header("User-Agent", Config.USER_AGENT)
                .build();
 
        HttpResponse<String> res = httpClient.send(request, HttpResponse.BodyHandlers.ofString());

@@ -26,6 +26,6 @@ public class SelectWorldScreenMixin extends Screen  {
 
         this.addRenderableWidget(Button.builder(Component.literal("Download World"), (button) -> {
             this.minecraft.setScreen(new DownloadWorldScreen(this));
-        }).bounds(90, 5, 80, 20).build());
+        }).bounds(5, 33, 80, 20).build());
     }
 }

@@ -33,6 +33,7 @@ public class WorldDownloader {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(new URI(Config.API_ENDPOINT + "/exists?world=" + worldId))
                 .GET()
+                .header("User-Agent", Config.USER_AGENT)
                 .build();
 
         HttpResponse<String> res = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
@@ -51,6 +52,7 @@ public class WorldDownloader {
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(new URI(Config.API_ENDPOINT + "/get_data?world=" + worldId))
+                .header("User-Agent", Config.USER_AGENT)
                 .GET()
                 .build();
 
