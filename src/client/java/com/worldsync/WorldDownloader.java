@@ -2,24 +2,24 @@ package com.worldsync;
 
 import com.google.gson.Gson;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.ProgressScreen;
 import net.minecraft.network.chat.Component;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.InputStream;
+import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URL;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.*;
 
 public class WorldDownloader {
 
@@ -28,6 +28,7 @@ public class WorldDownloader {
     private final Map<String, String> serverFileMap = new HashMap<>();
     private Gson gson = new Gson();
     private static final Logger LOGGER = LoggerFactory.getLogger(WorldDownloader.class);
+    private Path path = null;
 
     private void checkSessionExists(int worldId) throws Exception {
         HttpRequest request = HttpRequest.newBuilder()
@@ -43,6 +44,110 @@ public class WorldDownloader {
         }
     }
 
+    private void loopFiles(File parent) throws IOException, NoSuchAlgorithmException {
+
+
+        for (File f : Objects.requireNonNull(parent.listFiles())) {
+
+
+            if (f.isDirectory()) {
+                this.loopFiles(f);
+                continue;
+            }
+
+            FileInputStream fis = new FileInputStream(f.toPath().toString());
+
+            MessageDigest sha1 = MessageDigest.getInstance("SHA-1");
+
+            byte[] buffer = new byte[8192];
+            int bytesRead = 0;
+            while ((bytesRead = fis.read(buffer)) != -1) {
+                sha1.update(buffer, 0, bytesRead);
+            }
+            fis.close();
+
+            byte[] hashBytes = sha1.digest();
+            StringBuilder sb = new StringBuilder();
+            for (byte b : hashBytes) {
+                sb.append(String.format("%02x", b));
+            }
+
+            String hash = sb.toString();
+
+            String relativePath = this.path.relativize(f.toPath()).toString().replace("\\", "/");
+            this.fileMap.put(relativePath, hash);
+
+
+        }
+    }
+
+    private List<ClientOperation> diffMaps() {
+
+        List<ClientOperation> operations = new ArrayList<>();
+
+        for (String path : this.fileMap.keySet()) {
+            if (!this.serverFileMap.containsKey(path)) {
+                // path does not exist on server, needs deleting local
+
+                operations.add(new ClientOperation(path, this.fileMap.get(path), ClientFileOperation.DELETE));
+
+
+
+                // operations.add(new Operation(path, this.fileMap.get(path), FileOperation.UPLOAD));
+            } else if (!(this.fileMap.get(path).equals(this.serverFileMap.get(path)))) {
+
+                // hashes do not match, needs downloading
+
+                operations.add(new ClientOperation(path, this.serverFileMap.get(path), ClientFileOperation.DOWNLOAD));
+
+                // operations.add(new Operation(path, this.fileMap.get(path), FileOperation.UPLOAD));
+            }
+        }
+
+        for (String path : this.serverFileMap.keySet()) {
+            if (!this.fileMap.containsKey(path)) {
+                // doesn't exist on the client, needs downloading
+
+                operations.add(new ClientOperation(path, this.serverFileMap.get(path), ClientFileOperation.DOWNLOAD));
+            }
+        }
+
+        return operations;
+    }
+
+    private void downloadFile(int worldId, ClientOperation operation) throws Exception {
+        HttpURLConnection httpConn = (HttpURLConnection) new URL(Config.API_ENDPOINT + "/download?world=" + worldId + "&blob=" + operation.hash()).openConnection();
+        int responseCode = httpConn.getResponseCode();
+
+        if (responseCode == HttpURLConnection.HTTP_OK) {
+            InputStream inputStream = httpConn.getInputStream();
+
+            File path = new File(Minecraft.getInstance().gameDirectory.toPath().toAbsolutePath() + "/saves/world" + worldId + "/" + operation.path());
+            File parentDir = path.getParentFile();
+            if (!parentDir.exists()) {
+                parentDir.mkdirs(); // like os.makedirs in Python
+            }
+
+            FileOutputStream outputStream = new FileOutputStream(path);
+
+            byte[] buffer = new byte[4096];
+            int bytesRead = -1;
+
+            while ((bytesRead = inputStream.read(buffer)) != -1) {
+                outputStream.write(buffer, 0, bytesRead);
+            }
+
+            outputStream.close();
+            inputStream.close();
+
+            LOGGER.info("Cloned {}", operation.path());
+
+
+        } else {
+            LOGGER.error("Failed. Http response not OK");
+        }
+    }
+
     public void downloadWorld(int worldId, ProgressScreen screen) throws Exception {
         screen.progressStart(Component.literal("Cloning world..."));
 
@@ -52,8 +157,8 @@ public class WorldDownloader {
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(new URI(Config.API_ENDPOINT + "/get_data?world=" + worldId))
-                .header("User-Agent", Config.USER_AGENT)
                 .GET()
+                .header("User-Agent", Config.USER_AGENT)
                 .build();
 
         HttpResponse<String> res = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
@@ -61,56 +166,64 @@ public class WorldDownloader {
         if (res.statusCode() != 200) {
             throw new RuntimeException("An error occurred while fetching server data: " + res.body());
         }
-
-
-
-
-
         DataSyncResponse resJson = gson.fromJson(res.body(), DataSyncResponse.class);
 
+        for (DataSyncFileItemJson item : resJson.data) {
+            this.serverFileMap.put(item.path, item.hash);
+        }
 
-        int total = resJson.data.size();
+        screen.progressStage(Component.literal("Computing delta..."));
+
+        Path savePath = Minecraft.getInstance().gameDirectory.toPath().resolve("saves");
+
+        List<ClientOperation> operations = new ArrayList<>();
+
+        Path worldPath = savePath.resolve("world" + worldId);
+
+        if (!Files.exists(worldPath)) {
+            LOGGER.info("Repository does not exist, needs full cloning. Path not found {}", worldPath);
+
+            operations = this.diffMaps();
+
+        } else {
+            LOGGER.info("Repository exists, calculating delta");
+
+            this.path = worldPath;
+
+            this.loopFiles(worldPath.toFile());
+
+            operations = diffMaps();
+        }
+
+
+        int total = operations.size();
         int counter = 0;
 
 
-        for (DataSyncFileItemJson item : resJson.data) {
+        // Topological sort
+        operations.sort((o1, o2) -> Integer.compare(
+                Path.of(o2.path()).getNameCount(),  // deeper paths first
+                Path.of(o1.path()).getNameCount()
+        ));
+
+        for (ClientOperation operation : operations) {
             counter++;
 
-            screen.progressStage(Component.literal("Downloading " + item.path));
+            screen.progressStage(Component.literal("Updating " + operation.path()));
             screen.progressStagePercentage(Math.round(100 * ((float) counter / total)));
 
-            this.serverFileMap.put(item.path, item.hash);
-
-            HttpURLConnection httpConn = (HttpURLConnection) new URL(Config.API_ENDPOINT + "/download?world=" + worldId + "&blob=" + item.hash).openConnection();
-            int responseCode = httpConn.getResponseCode();
-
-            if (responseCode == HttpURLConnection.HTTP_OK) {
-                InputStream inputStream = httpConn.getInputStream();
-
-                File path = new File(Minecraft.getInstance().gameDirectory.toPath().toAbsolutePath() + "/saves/world" + worldId + "/" + item.path);
-                File parentDir = path.getParentFile();
-                if (!parentDir.exists()) {
-                    parentDir.mkdirs(); // like os.makedirs in Python
-                }
-
-                FileOutputStream outputStream = new FileOutputStream(path);
-
-                byte[] buffer = new byte[4096];
-                int bytesRead = -1;
-
-                while ((bytesRead = inputStream.read(buffer)) != -1) {
-                    outputStream.write(buffer, 0, bytesRead);
-                }
-
-                outputStream.close();
-                inputStream.close();
-
-                LOGGER.info("Cloned {}", item.path);
-
-
+            if (operation.operation() == ClientFileOperation.DOWNLOAD) {
+                this.downloadFile(worldId, operation);
             } else {
-                LOGGER.error("Failed. Http response not OK");
+                Path absolutePath = worldPath.resolve(operation.path());
+
+                boolean deleteSuccess = absolutePath.toFile().delete();
+
+                if (!deleteSuccess) {
+                    LOGGER.error("Failed to delete {}", absolutePath.toString());
+                }
             }
+
         }
 
         LOGGER.info("All operations complete!");

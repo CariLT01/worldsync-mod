@@ -178,6 +178,12 @@ public class WorldUploader {
         int total = operationsToDo.size();
         int counter = 0;
 
+        // Topological sort
+        operationsToDo.sort((o1, o2) -> Integer.compare(
+                Path.of(o2.path()).getNameCount(),  // deeper paths first
+                Path.of(o1.path()).getNameCount()
+        ));
+
         for (Operation op : operationsToDo) {
             if (op.operation() == FileOperation.UPLOAD) {
                 LOGGER.info("Update file {} (sh1: {})", op.path(), op.hash());
