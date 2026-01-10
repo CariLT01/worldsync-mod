@@ -249,7 +249,7 @@ public class WorldUploader {
             throw new IllegalArgumentException("Passed a File that is not a directory");
         }
 
-        progressScreen.progressStart(Component.literal("Starting..."));
+        progressScreen.progressStart(Component.literal("Uploading..."));
         progressScreen.progressStage(Component.literal("Preparing..."));
 
         int gameId = gameIdRaw;
