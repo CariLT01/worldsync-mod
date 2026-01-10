@@ -1,0 +1,38 @@
+{
+	"schemaVersion": 1,
+	"id": "world-sync",
+	"version": "${version}",
+	"name": "World Sync",
+	"description": "This is an example description! Tell everyone what your mod is about!",
+	"authors": [
+		"Me!"
+	],
+	"contact": {
+		"homepage": "https://fabricmc.net/",
+		"sources": "https://github.com/FabricMC/fabric-example-mod"
+	},
+	"license": "CC0-1.0",
+	"icon": "assets/world-sync/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"com.worldsync.WorldSync"
+		],
+		"client": [
+			"com.worldsync.WorldSyncClient"
+		]
+	},
+	"mixins": [
+		"world-sync.mixins.json",
+		{
+			"config": "world-sync.client.mixins.json",
+			"environment": "client"
+		}
+	],
+	"depends": {
+		"fabricloader": ">=0.18.4",
+		"minecraft": "~1.21.11",
+		"java": ">=21",
+		"fabric-api": "*"
+	}
+}

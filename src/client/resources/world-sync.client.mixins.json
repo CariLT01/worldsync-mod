@@ -1,0 +1,11 @@
+{
+	"required": true,
+	"package": "com.worldsync.mixin.client",
+	"compatibilityLevel": "JAVA_21",
+	"client": [
+		"SelectWorldScreenMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}
