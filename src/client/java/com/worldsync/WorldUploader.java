@@ -1,12 +1,15 @@
 package com.worldsync;
 
 import com.google.gson.Gson;
+import com.mojang.realmsclient.gui.screens.UploadResult;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.ProgressScreen;
 import net.minecraft.network.chat.Component;
 import org.apache.hc.client5.http.classic.methods.HttpPost;
 import org.apache.hc.client5.http.entity.mime.MultipartEntityBuilder;
 import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
 import org.apache.hc.client5.http.impl.classic.HttpClients;
+import org.apache.hc.core5.http.ContentType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -24,6 +27,13 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.*;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 public class WorldUploader {
 
@@ -33,8 +43,12 @@ public class WorldUploader {
     private final HttpClient httpClient = HttpClient.newHttpClient();
     private Gson gson = new Gson();
     private Path path;
+    private final AtomicInteger filesProcessedCounter = new AtomicInteger(0);
+    private final AtomicInteger filesTotal = new AtomicInteger(0);
+    private final AtomicBoolean isRunning = new AtomicBoolean(false);
 
     private static final Logger LOGGER = LoggerFactory.getLogger(WorldUploader.class);
+    private final ExecutorService executor = Executors.newFixedThreadPool(4);
 
     public WorldUploader() {
 
@@ -104,6 +118,44 @@ public class WorldUploader {
         return operations;
     }
 
+    private void uploadFileBatched(List<String> fileLocations, int worldId) {
+
+
+        try (CloseableHttpClient client = HttpClients.createDefault()) {
+
+
+            HttpPost post = new HttpPost(Config.API_ENDPOINT + "/upload/batch");
+            post.addHeader("User-Agent", Config.USER_AGENT);
+
+            MultipartEntityBuilder builder = MultipartEntityBuilder.create();
+
+            for (String filePath : fileLocations) {
+                Path absolutePath = this.path.resolve(filePath);
+                File filePathObj = new File(absolutePath.normalize().toString());
+                builder.addBinaryBody("files", filePathObj, ContentType.DEFAULT_BINARY, filePathObj.getName());
+                builder.addTextBody("paths", filePath);
+            }
+
+            builder.addTextBody("world", String.valueOf(worldId));
+
+            post.setEntity(builder.build());
+
+            client.execute(post, response -> {
+                if (response.getCode() != 200) {
+                    throw new RuntimeException("Returned invalid status: " + response.getEntity().getContent().toString() + response.getCode());
+                }
+
+                // LOGGER.info("Successfully uploaded file: {}", fileLocation);
+                LOGGER.info("Upload response: {}", response.getCode());
+
+                return null;
+            });
+        } catch (IOException e) {
+            LOGGER.error("Error while uploading batched: ", e);
+            throw new RuntimeException(e);
+        }
+    }
+
     private void uploadFile(String fileLocation, int worldId) {
         try (CloseableHttpClient client = HttpClients.createDefault()) {
             Path absolutePath = this.path.resolve(fileLocation);
@@ -134,6 +186,37 @@ public class WorldUploader {
 
     }
 
+    private void deleteFileBatched(List<String> fileLocations, int worldId) {
+        try (CloseableHttpClient client = HttpClients.createDefault()) {
+
+
+            HttpPost post = new HttpPost(Config.API_ENDPOINT + "/remove/batch");
+            post.addHeader("User-Agent", Config.USER_AGENT);
+
+            MultipartEntityBuilder builder = MultipartEntityBuilder.create();
+
+            for (String filePath : fileLocations) {
+                builder.addTextBody("paths", filePath);
+            }
+
+            builder.addTextBody("world", String.valueOf(worldId));
+
+            post.setEntity(builder.build());
+
+            client.execute(post, response -> {
+                if (response.getCode() != 200) {
+                    throw new RuntimeException("Returned invalid status: " + response.getEntity().getContent().toString() + response.getCode());
+                }
+
+                // LOGGER.info("Successfully uploaded file: {}", fileLocation);
+
+                return null;
+            });
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     private void deleteFile(String fileLocation, int worldId) throws Exception {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(new URI(Config.API_ENDPOINT + "/remove?world=" + worldId + "&path=" + fileLocation))
@@ -150,7 +233,40 @@ public class WorldUploader {
 
     }
 
-    public void processUpload(int worldId, ProgressScreen screen) throws Exception {
+    private void executeTask(List<Operation> task, int worldId, WorkerStatusScreen screen) {
+        if (task.isEmpty()) {
+            LOGGER.warn("received empty task");
+            return;
+        }
+
+        long threadId = Thread.currentThread().threadId();
+
+
+
+
+        FileOperation opType = task.getFirst().operation();
+        LOGGER.info("Executing task of size: {} type: {}", task.size(), opType);
+        screen.setWorkerStatus("Worker " + threadId,
+                String.format("Executing %s %s tasks", task.size(), opType));
+
+        List<String> fileLocations = new ArrayList<>();
+        for (Operation op : task) {
+            fileLocations.add(op.path());
+        }
+
+        if (opType.equals(FileOperation.UPLOAD)) {
+            this.uploadFileBatched(fileLocations, worldId);
+        } else if (opType.equals(FileOperation.DELETE)) {
+            this.deleteFileBatched(fileLocations, worldId);
+        } else {
+            LOGGER.warn("Unknown operation type: {}", opType);
+        }
+
+    }
+
+    public List<String> processUpload(int worldId, WorkerStatusScreen screen) throws Exception {
+        List<String> errors = Collections.synchronizedList(new ArrayList<>());
+
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(new URI(Config.API_ENDPOINT + "/get_data?world=" + worldId))
                 .GET()
@@ -179,12 +295,145 @@ public class WorldUploader {
         int counter = 0;
 
         // Topological sort
-        operationsToDo.sort((o1, o2) -> Integer.compare(
-                Path.of(o2.path()).getNameCount(),  // deeper paths first
-                Path.of(o1.path()).getNameCount()
-        ));
+        try {
+            operationsToDo.sort((o1, o2) -> Integer.compare(
+                    Path.of(o2.path()).getNameCount(),  // deeper paths first
+                    Path.of(o1.path()).getNameCount()
+            ));
+        } catch (Exception e) {
+            LOGGER.error("Optional step topological sort failed: ", e);
+            errors.add("topological sort failed: " + e.getMessage());
+        }
+
+
+        // Group the delete operations first
+
+        this.filesTotal.set(0);
+
+        List<Operation> deleteOperations = new ArrayList<>();
+        List<Operation> uploadOperations = new ArrayList<>();
 
         for (Operation op : operationsToDo) {
+            this.filesTotal.getAndIncrement();
+            if (op.operation() == FileOperation.UPLOAD) {
+                uploadOperations.add(op);
+            } else if (op.operation() == FileOperation.DELETE) {
+                deleteOperations.add(op);
+            } else {
+                LOGGER.warn("Unknown file operation: {}", op.operation());
+                errors.add(String.format("skipped file: %s - unknown operation %s", op.path(), op.operation()));
+            }
+        }
+
+        // Group into tasks
+
+        List<List<Operation>> tasks = new ArrayList<>();
+
+
+        // Delete operations
+        int deletedCounter = 0;
+        int MAX_DELETE_PER_REQUEST = 128;
+        List<Operation> currentTaskList = new ArrayList<>();
+        for (Operation deleteOp : deleteOperations) {
+            currentTaskList.add(deleteOp);
+            deletedCounter++;
+            if (deletedCounter >= MAX_DELETE_PER_REQUEST) {
+                tasks.add(currentTaskList);
+                currentTaskList = new ArrayList<>();
+            }
+        }
+        if (!currentTaskList.isEmpty()) {
+            tasks.add(currentTaskList);
+        }
+        currentTaskList = new ArrayList<>();
+
+        // Upload operations
+        int uploadCounter = 0;
+        long uploadSize = 0;
+        int MAX_FILES_COUNT = 32;
+        long MAX_UPLOAD_BATCH = 5 * 1024 * 1024;
+
+        for (Operation uploadOp : uploadOperations) {
+            Path absolutePath = this.path.resolve(uploadOp.path());
+
+            long fileSize = Files.size(absolutePath);
+            // If more than MAX_UPLOAD_BATCH
+
+            if (uploadSize + fileSize > MAX_UPLOAD_BATCH && !currentTaskList.isEmpty()) {
+                tasks.add(currentTaskList);
+                currentTaskList = new ArrayList<>();
+                uploadCounter = 0;
+                uploadSize = 0;
+            }
+            currentTaskList.add(uploadOp);
+            uploadCounter++;
+            uploadSize+=fileSize;
+            // if we hit the count or if this single file puts us over the size limit
+            if (uploadCounter >= MAX_FILES_COUNT || uploadSize >= MAX_UPLOAD_BATCH) {
+                tasks.add(currentTaskList);
+                currentTaskList = new ArrayList<>();
+                uploadCounter = 0;
+                uploadSize = 0;
+            }
+        }
+        if (!currentTaskList.isEmpty()) {
+            tasks.add(currentTaskList);
+        }
+
+        List<Callable<Void>> callables = tasks.stream().map(task -> (Callable<Void>) () -> {
+            try {
+                this.executeTask(task, worldId, screen);
+            } catch (Exception e) {
+                LOGGER.error("Task execution failed: ", e);
+                errors.add("task execution failed: " + e.getMessage());
+            }
+            finally {
+                filesProcessedCounter.getAndAdd(task.size());
+            }
+
+            return null;
+        }).toList();
+
+        // Observer thread
+
+        Thread observerThread = new Thread(() -> {
+            while (isRunning.get()) {
+                try {
+                    // screen.progressStage(Component.literal("Executing tasks..."));
+                    // screen.progressStagePercentage(Math.round(100 * ( ((float)filesProcessedCounter.get() / filesTotal.get()))));
+                    screen.setOverallStatus(String.format(
+                            "Executing tasks... (%s%%) (parallel: using up to 4 threads, batching: 32 files/5 MB)",
+                            Math.round(100 * ( ((float)filesProcessedCounter.get() / filesTotal.get())))
+                    ));
+
+                    Thread.sleep(250);
+                } catch (Exception e) {
+                    LOGGER.error("Failed to update screen: ", e);
+                }
+
+            }
+
+        });
+
+        isRunning.set(true);
+        observerThread.start();
+
+        // Invoke using executor
+        List<Future<Void>> futures = executor.invokeAll(callables);
+
+        for (Future<Void> future : futures) {
+            try {
+                future.get();
+            } catch (Exception e) {
+                LOGGER.error("Task execution failed:", e);
+                errors.add("task execution failed: " + e.getMessage());
+                screen.incrementFailuresCounter();
+            }
+        }
+
+        isRunning.set(false);
+
+        /* for (Operation op : operationsToDo) {
             if (op.operation() == FileOperation.UPLOAD) {
                 LOGGER.info("Update file {} (sh1: {})", op.path(), op.hash());
 
@@ -206,11 +455,11 @@ public class WorldUploader {
             }
 
             counter++;
-        }
+        } */
 
         LOGGER.info("All operations complete");
 
-
+        return errors;
     }
 
     private void checkSessionExists(int worldId) throws Exception {
@@ -254,18 +503,17 @@ public class WorldUploader {
     }
 
 
-    public int uploadWorld(File directory, int gameIdRaw, ProgressScreen progressScreen) throws Exception {
+    public WorldUploadResult uploadWorld(File directory, int gameIdRaw, WorkerStatusScreen progressScreen) throws Exception {
 
         if (!directory.isDirectory()) {
             throw new IllegalArgumentException("Passed a File that is not a directory");
         }
 
-        progressScreen.progressStart(Component.literal("Uploading..."));
-        progressScreen.progressStage(Component.literal("Preparing..."));
+        progressScreen.setOverallStatus("Preparing tasks...");
 
         int gameId = gameIdRaw;
 
-        if (gameIdRaw != -1) {
+        if (gameIdRaw != -1 && gameIdRaw != 0) {
             this.checkSessionExists(gameIdRaw);
         } else {
             gameId = this.createSession();
@@ -274,16 +522,15 @@ public class WorldUploader {
         this.path = directory.toPath();
 
 
-
-        progressScreen.progressStage(Component.literal("Scanning for files..."));
+        progressScreen.setOverallStatus("Enumerating objects...");
 
         this.loopFiles(directory);
 
-        progressScreen.progressStage(Component.literal("Uploading..."));
+        progressScreen.setOverallStatus("Executing tasks...");
 
-        this.processUpload(gameId, progressScreen);
+        List<String> errors = this.processUpload(gameId, progressScreen);
 
-        return gameId;
+        return new WorldUploadResult(gameId, errors);
     }
 
     public Gson getGson() {

@@ -5,6 +5,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.ProgressScreen;
 import net.minecraft.network.chat.Component;
+import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -20,6 +21,10 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.*;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class WorldDownloader {
 
@@ -29,6 +34,11 @@ public class WorldDownloader {
     private Gson gson = new Gson();
     private static final Logger LOGGER = LoggerFactory.getLogger(WorldDownloader.class);
     private Path path = null;
+
+    private final ExecutorService executor = Executors.newFixedThreadPool(4);
+
+    private final AtomicInteger counter = new AtomicInteger(0);
+    private final AtomicInteger total = new AtomicInteger(0);
 
     private void checkSessionExists(int worldId) throws Exception {
         HttpRequest request = HttpRequest.newBuilder()
@@ -122,13 +132,7 @@ public class WorldDownloader {
         if (responseCode == HttpURLConnection.HTTP_OK) {
             InputStream inputStream = httpConn.getInputStream();
 
-            File path = new File(Minecraft.getInstance().gameDirectory.toPath().toAbsolutePath() + "/saves/world" + worldId + "/" + operation.path());
-            File parentDir = path.getParentFile();
-            if (!parentDir.exists()) {
-                parentDir.mkdirs(); // like os.makedirs in Python
-            }
-
-            FileOutputStream outputStream = new FileOutputStream(path);
+            FileOutputStream outputStream = getFileOutputStream(worldId, operation);
 
             byte[] buffer = new byte[4096];
             int bytesRead = -1;
@@ -148,10 +152,51 @@ public class WorldDownloader {
         }
     }
 
-    public void downloadWorld(int worldId, ProgressScreen screen) throws Exception {
-        screen.progressStart(Component.literal("Cloning world..."));
+    private static @NotNull FileOutputStream getFileOutputStream(int worldId, ClientOperation operation) throws FileNotFoundException {
+        String filePathStr = Minecraft.getInstance().gameDirectory.toPath().toAbsolutePath() + "/saves/world" + worldId + "/" + operation.path();
+        Path filePath = Path.of(filePathStr.replace("\n", "").replace("\r", "")).toAbsolutePath().normalize();
+        File path = new File(filePath.toUri());
+        File parentDir = path.getParentFile();
+        if (!parentDir.exists()) {
+            parentDir.mkdirs(); // like os.makedirs in Python
+        }
 
-        screen.progressStage(Component.literal("Getting metadata..."));
+        return new FileOutputStream(path);
+    }
+
+    private void executeTask(ClientOperation operation, WorkerStatusScreen screen, int worldId, Path worldPath) throws Exception {
+        counter.getAndIncrement();
+
+        // screen.progressStage(Component.literal("Updating " + operation.path()));
+        // screen.progressStagePercentage(Math.round(100 * ((float) counter.get() / total.get())));
+
+        long threadId = Thread.currentThread().threadId();
+
+        screen.setOverallStatus(String.format(
+                "Cloning world... (%s%%) (parallel: using up to 4 threads)",
+                Math.round(100 * ((float) counter.get() / total.get()))
+        ));
+        screen.setWorkerStatus("Worker " + threadId, "Download: " + operation.path());
+
+        if (operation.operation() == ClientFileOperation.DOWNLOAD) {
+            this.downloadFile(worldId, operation);
+        } else {
+            Path absolutePath = worldPath.resolve(operation.path());
+
+            boolean deleteSuccess = absolutePath.toFile().delete();
+
+            if (!deleteSuccess) {
+                LOGGER.error("Failed to delete {}", absolutePath.toString());
+            }
+        }
+    }
+
+    public void downloadWorld(int worldId, WorkerStatusScreen screen) throws Exception {
+        //screen.progressStart(Component.literal("Cloning world..."));
+
+        //screen.progressStage(Component.literal("Getting metadata..."));
+
+        screen.setOverallStatus("Getting metadata");
 
         this.checkSessionExists(worldId);
 
@@ -172,7 +217,8 @@ public class WorldDownloader {
             this.serverFileMap.put(item.path, item.hash);
         }
 
-        screen.progressStage(Component.literal("Computing delta..."));
+        screen.setOverallStatus("Computing delta");
+        // screen.progressStage(Component.literal("Computing delta..."));
 
         Path savePath = Minecraft.getInstance().gameDirectory.toPath().resolve("saves");
 
@@ -196,35 +242,32 @@ public class WorldDownloader {
         }
 
 
-        int total = operations.size();
-        int counter = 0;
+        total.set(operations.size());
+        counter.set(0);
 
 
         // Topological sort
-        operations.sort((o1, o2) -> Integer.compare(
-                Path.of(o2.path()).getNameCount(),  // deeper paths first
-                Path.of(o1.path()).getNameCount()
-        ));
+        try {
+            operations.sort((o1, o2) -> Integer.compare(
+                    Path.of(o2.path()).getNameCount(),  // deeper paths first
+                    Path.of(o1.path()).getNameCount()
+            ));
+        } catch (Exception e) {
+            LOGGER.error("optional topological sort failed: ", e);
+        }
 
-        for (ClientOperation operation : operations) {
-            counter++;
 
-            screen.progressStage(Component.literal("Updating " + operation.path()));
-            screen.progressStagePercentage(Math.round(100 * ((float) counter / total)));
-
-            if (operation.operation() == ClientFileOperation.DOWNLOAD) {
-                this.downloadFile(worldId, operation);
-            } else {
-                Path absolutePath = worldPath.resolve(operation.path());
-
-                boolean deleteSuccess = absolutePath.toFile().delete();
-
-                if (!deleteSuccess) {
-                    LOGGER.error("Failed to delete {}", absolutePath.toString());
-                }
+        List<Callable<Void>> callables = operations.stream().map(op -> (Callable<Void>) () -> {
+            try {
+                this.executeTask(op, screen, worldId, worldPath);
+            } catch (Exception e) {
+                LOGGER.error("An error occurred while downloading file: ", e);
             }
 
-        }
+            return null;
+        }).toList();
+
+        executor.invokeAll(callables);
 
         LOGGER.info("All operations complete!");
 

@@ -5,6 +5,7 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.CycleButton;
 import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.components.StringWidget;
 import net.minecraft.client.gui.layouts.LinearLayout;
 import net.minecraft.client.gui.screens.ProgressScreen;
 import net.minecraft.client.gui.screens.Screen;
@@ -51,12 +52,6 @@ public class WorldSyncScreen extends Screen {
         layout.defaultCellSetting().alignHorizontallyCenter();
 
         layout.addChild(
-                Button.builder(Component.literal("Sync..."), (button) -> {
-
-                }).width(200).build()
-        );
-
-        layout.addChild(
                 CycleButton.<String>builder(new Function<String, Component>() {
                             @Override
                             public Component apply(String value) {
@@ -71,7 +66,22 @@ public class WorldSyncScreen extends Screen {
                         })
         );
 
+        StringWidget label = new StringWidget(
+                Component.literal("Existing world code")
+                        .withStyle(style -> style.withColor(0xFFFFFF)),
+                this.font);
+        StringWidget description = new StringWidget(
+                Component.literal("Please use the existing world code.\nLeave at 0 to create a new world code.")
+                        .withStyle(style -> style.withColor(0xAAAAAA)),
+                this.font);
+
+
+        layout.addChild(label);
+        layout.addChild(description);
+
         EditBox worldId = new EditBox(this.font, this.width / 2 - 100, 100, 200, 20, Component.literal("Existing World ID"));
+
+
         worldId.setValue("0");
         worldId.setResponder(value -> {
             // Remove non-numeric characters
@@ -113,34 +123,49 @@ public class WorldSyncScreen extends Screen {
 
                     System.out.println("Uploading path: " + worldPath);
 
-                    ProgressScreen progressScreen = new ProgressScreen(true);
+                    WorkerStatusScreen progressScreen = new WorkerStatusScreen();
 
                     this.minecraft.setScreen(progressScreen);
 
                     new Thread(() -> {
                         try {
 
-                            int gameId = worldUploader.uploadWorld(worldPath.toFile(), this.currentSelectedId, progressScreen);
+                            WorldUploadResult result = worldUploader.uploadWorld(worldPath.toFile(), this.currentSelectedId, progressScreen);
+                            int gameId = result.gameId();
 
                             if (this.currentSelectedId == -1) {
 
-                                CodeStatusScreen codeStatusScreen = new CodeStatusScreen(this);
-                                codeStatusScreen.setCode(String.valueOf(gameId));
+
+                                // CodeStatusScreen codeStatusScreen = new CodeStatusScreen(this);
+                                // codeStatusScreen.setCode(String.valueOf(gameId));
+
+                                MessageScreen resultScreen = new MessageScreen(this);
+                                resultScreen.setMessage(
+                                        String.format("World (probably, hopefully) uploaded. The code for this world is: %s. Please do not lose this code and waste space on my servers.", gameId)
+                                );
+                                resultScreen.setIssues(result.errors());
 
                                 this.minecraft.execute(() -> {
-                                    this.minecraft.setScreen(codeStatusScreen);
+                                    this.minecraft.setScreen(resultScreen);
                                 });
 
 
                             } else {
                                 this.minecraft.execute(() -> {
-                                    this.minecraft.setScreen(this);
+                                    MessageScreen msgScreen = new MessageScreen(this);
+                                    msgScreen.setMessage("World has (probably, hopefully) been uploaded successfully at the specified code");
+                                    msgScreen.setIssues(result.errors());
+                                    minecraft.setScreen(msgScreen);
                                 });
                             }
                         } catch (Exception e) {
 
                             this.minecraft.execute(() -> {
-                                this.minecraft.setScreen(this);
+                                MessageScreen msgScreen = new MessageScreen(this);
+                                msgScreen.setMessage(
+                                        String.format("Failed to upload the world: %s", e.getMessage())
+                                );
+                                minecraft.setScreen(msgScreen);
                             });
 
                             throw new RuntimeException(e);
@@ -163,6 +188,6 @@ public class WorldSyncScreen extends Screen {
     @Override
     public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
         super.render(guiGraphics, mouseX, mouseY, partialTick);
-        guiGraphics.drawCenteredString(this.font, this.title, this.width / 2, 15, 0xFFFFFF);
+        guiGraphics.drawCenteredString(this.font, this.title, this.width / 2, 15, 0xFFFFFFFF);
     }
 }
