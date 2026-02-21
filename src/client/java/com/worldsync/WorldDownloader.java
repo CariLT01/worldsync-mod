@@ -191,10 +191,12 @@ public class WorldDownloader {
         }
     }
 
-    public void downloadWorld(int worldId, WorkerStatusScreen screen) throws Exception {
+    public List<String> downloadWorld(int worldId, WorkerStatusScreen screen) throws Exception {
         //screen.progressStart(Component.literal("Cloning world..."));
 
         //screen.progressStage(Component.literal("Getting metadata..."));
+
+        List<String> errors = new ArrayList<>();
 
         screen.setOverallStatus("Getting metadata");
 
@@ -209,6 +211,7 @@ public class WorldDownloader {
         HttpResponse<String> res = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
         if (res.statusCode() != 200) {
+            errors.add("fetch server data failed: " + res.body());
             throw new RuntimeException("An error occurred while fetching server data: " + res.body());
         }
         DataSyncResponse resJson = gson.fromJson(res.body(), DataSyncResponse.class);
@@ -253,6 +256,7 @@ public class WorldDownloader {
                     Path.of(o1.path()).getNameCount()
             ));
         } catch (Exception e) {
+            errors.add("optional topological sort failed: " + e.getMessage());
             LOGGER.error("optional topological sort failed: ", e);
         }
 
@@ -261,6 +265,7 @@ public class WorldDownloader {
             try {
                 this.executeTask(op, screen, worldId, worldPath);
             } catch (Exception e) {
+                errors.add("file download failed: " + op.path() + " error: " + e.getMessage());
                 LOGGER.error("An error occurred while downloading file: ", e);
             }
 
@@ -271,7 +276,7 @@ public class WorldDownloader {
 
         LOGGER.info("All operations complete!");
 
-
+        return errors;
 
 
     }

@@ -124,6 +124,7 @@ public class WorldSyncScreen extends Screen {
                     System.out.println("Uploading path: " + worldPath);
 
                     WorkerStatusScreen progressScreen = new WorkerStatusScreen();
+                    progressScreen.setTaskName("Uploading world");
 
                     this.minecraft.setScreen(progressScreen);
 

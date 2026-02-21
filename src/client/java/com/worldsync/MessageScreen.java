@@ -1,9 +1,13 @@
 package com.worldsync;
 
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.layouts.LinearLayout;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
+import net.minecraft.util.FormattedCharSequence;
+import org.joml.Matrix3x2f;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -12,6 +16,9 @@ public class MessageScreen extends Screen {
 
     public String message = "No message";
     public Screen parent;
+
+    private float scrollX = 0;
+    private float scrollY = 0;
 
     public List<String> issues = new ArrayList<>();
 
@@ -30,7 +37,6 @@ public class MessageScreen extends Screen {
     @Override
     protected void init() {
 
-
         this.addRenderableWidget(
                 Button.builder(Component.literal("Back"), (button) -> {
                     this.minecraft.setScreen(this.parent);
@@ -48,13 +54,28 @@ public class MessageScreen extends Screen {
         guiGraphics.drawCenteredString(this.font, this.message, this.width / 2, 40, 0xFFFFFFFF);
 
         if (!issues.isEmpty()) {
-            guiGraphics.drawCenteredString(this.font, "Multiple errors occurred while executing tasks: ", this.width / 2, 60, 0xFFFFFFFF);
+            guiGraphics.drawCenteredString(this.font, "Errors occurred while executing tasks: ", this.width / 2, 60, 0xFFFFFFFF);
         }
 
-        int c = 0;
-        for (String issue : issues) {
-            guiGraphics.drawCenteredString(this.font, issue, this.width / 2, 100 + c * 30, 0xFF0000FF);
-            c++;
+
+        int top = 100;
+        int left = 40;
+        int width = this.width - left * 2;
+        int height = 360;
+
+        // fill box
+        // guiGraphics.fill(top, left, width, height, 0xFF000000);
+
+
+        int lineHeight = 12;
+
+        int lineCounter = 0;
+        for (String line : issues) {
+            List<FormattedCharSequence> lines = this.font.split(Component.literal(line), width);
+            for (FormattedCharSequence charSequence : lines) {
+                guiGraphics.drawString(this.font, charSequence, left, top + lineHeight * lineCounter, 0xFFFF0000);
+                lineCounter++;
+            }
         }
 
         super.render(guiGraphics, mouseX, mouseY, partialTick);

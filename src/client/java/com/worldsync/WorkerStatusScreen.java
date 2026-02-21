@@ -12,6 +12,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class WorkerStatusScreen extends Screen {
 
     private String overallStatus = "";
+    private String taskName = "";
     private final AtomicInteger frameCounter = new AtomicInteger(0);
 
     private static final String[] loadingCharacters = {"/", "-", "\\", "|"};
@@ -42,7 +43,10 @@ public class WorkerStatusScreen extends Screen {
 
     @Override
     protected void init() {
+    }
 
+    public void setTaskName(String taskName) {
+        this.taskName = taskName;
     }
 
     @Override
@@ -50,7 +54,7 @@ public class WorkerStatusScreen extends Screen {
 
         frameCounter.getAndIncrement();
 
-        guiGraphics.drawCenteredString(this.font, "Uploading...", this.width / 2, 40, 0xFFFFFFFF);
+        guiGraphics.drawCenteredString(this.font, this.taskName, this.width / 2, 40, 0xFFFFFFFF);
 
         guiGraphics.drawCenteredString(this.font, this.overallStatus, this.width / 2, 80, 0xAAAAAAFF);
 

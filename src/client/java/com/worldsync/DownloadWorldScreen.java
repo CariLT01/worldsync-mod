@@ -67,6 +67,7 @@ public class DownloadWorldScreen extends Screen {
                 Button.builder(Component.literal("Sync World"), (button) -> {
 
                     WorkerStatusScreen progressScreen = new WorkerStatusScreen();
+                    progressScreen.setTaskName("Downloading world");
                     minecraft.execute(() -> {
                         minecraft.setScreen(progressScreen);
                     });
@@ -79,9 +80,10 @@ public class DownloadWorldScreen extends Screen {
 
                         try {
 
-                            wd.downloadWorld(this.currentSelectedId, progressScreen);
+                            List<String> issues = wd.downloadWorld(this.currentSelectedId, progressScreen);
                             MessageScreen msgScreen = new MessageScreen(this);
-                            msgScreen.setMessage("World has been downloaded successfully");
+                            msgScreen.setMessage("World has been downloaded");
+                            msgScreen.setIssues(issues);
                             minecraft.execute(() -> {
                                 minecraft.setScreen(msgScreen);
                             });
@@ -136,6 +138,6 @@ public class DownloadWorldScreen extends Screen {
     @Override
     public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
         super.render(guiGraphics, mouseX, mouseY, partialTick);
-        guiGraphics.drawCenteredString(this.font, this.title, this.width / 2, 15, 0xFFFFFF);
+        guiGraphics.drawCenteredString(this.font, this.title, this.width / 2, 15, 0xFFFFFFFF);
     }
 }
