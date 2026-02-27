@@ -1,4 +1,4 @@
-package com.worldsync;
+package com.worldsync.types;
 
 public record Operation(
         String path,

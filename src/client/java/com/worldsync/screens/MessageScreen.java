@@ -1,13 +1,10 @@
-package com.worldsync;
+package com.worldsync.screens;
 
-import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
-import net.minecraft.client.gui.layouts.LinearLayout;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.FormattedCharSequence;
-import org.joml.Matrix3x2f;
 
 import java.util.ArrayList;
 import java.util.List;

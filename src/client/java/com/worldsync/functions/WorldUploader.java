@@ -1,10 +1,14 @@
-package com.worldsync;
+package com.worldsync.functions;
 
 import com.google.gson.Gson;
-import com.mojang.realmsclient.gui.screens.UploadResult;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.screens.ProgressScreen;
-import net.minecraft.network.chat.Component;
+import com.worldsync.Config;
+import com.worldsync.LZMACompressor;
+import com.worldsync.responses.CreateSessionResponse;
+import com.worldsync.responses.DataSyncFileItemJson;
+import com.worldsync.responses.DataSyncResponse;
+import com.worldsync.responses.WorldUploadFreeSpaceResponse;
+import com.worldsync.screens.WorkerStatusScreen;
+import com.worldsync.types.*;
 import org.apache.hc.client5.http.classic.methods.HttpPost;
 import org.apache.hc.client5.http.entity.mime.MultipartEntityBuilder;
 import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
@@ -13,12 +17,10 @@ import org.apache.hc.core5.http.ContentType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.management.RuntimeErrorException;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.net.URI;
-import java.net.URISyntaxException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -33,7 +35,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.stream.Collectors;
 
 public class WorldUploader {
 
@@ -118,7 +119,24 @@ public class WorldUploader {
         return operations;
     }
 
-    private void uploadFileBatched(List<String> fileLocations, int worldId) {
+    private CompressionResult processFileForSize(File file) throws Exception {
+        byte[] fileBytes = Files.readAllBytes(file.toPath());
+
+
+        byte[] compressedBytes = LZMACompressor.compressBytes(fileBytes, 6);
+
+
+        float compressionRatio = (float) compressedBytes.length / fileBytes.length;
+        if (compressionRatio < 1) {
+            LOGGER.info("compression: {} applied (ratio: {})", file.getPath(), compressionRatio);
+            return new CompressionResult(true, compressedBytes);
+        } else {
+            LOGGER.info("compression: {} reverted (ratio: {})", file.getPath(), compressionRatio);
+            return new CompressionResult(false, fileBytes);
+        }
+    }
+
+    private void uploadFileBatched(List<String> fileLocations, int worldId) throws Exception {
 
 
         try (CloseableHttpClient client = HttpClients.createDefault()) {
@@ -132,17 +150,21 @@ public class WorldUploader {
             for (String filePath : fileLocations) {
                 Path absolutePath = this.path.resolve(filePath);
                 File filePathObj = new File(absolutePath.normalize().toString());
-                builder.addBinaryBody("files", filePathObj, ContentType.DEFAULT_BINARY, filePathObj.getName());
+                CompressionResult processedFileData = this.processFileForSize(filePathObj);
+
+                builder.addBinaryBody("files", processedFileData.processedData(), ContentType.DEFAULT_BINARY, filePathObj.getName());
+                builder.addTextBody("client_is_compressed", processedFileData.isCompressed() ? "true" : "false");
                 builder.addTextBody("paths", filePath);
             }
 
             builder.addTextBody("world", String.valueOf(worldId));
+            builder.addTextBody("client_compressed", "true");
 
             post.setEntity(builder.build());
 
             client.execute(post, response -> {
                 if (response.getCode() != 200) {
-                    throw new RuntimeException("Returned invalid status: " + response.getEntity().getContent().toString() + response.getCode());
+                    throw new RuntimeException("Upload Failed: " + response.getEntity().getContent().toString() + response.getCode());
                 }
 
                 // LOGGER.info("Successfully uploaded file: {}", fileLocation);
@@ -186,7 +208,7 @@ public class WorldUploader {
 
     }
 
-    private void deleteFileBatched(List<String> fileLocations, int worldId) {
+    private void deleteFileBatched(List<String> fileLocations, int worldId) throws Exception {
         try (CloseableHttpClient client = HttpClients.createDefault()) {
 
 
@@ -205,7 +227,7 @@ public class WorldUploader {
 
             client.execute(post, response -> {
                 if (response.getCode() != 200) {
-                    throw new RuntimeException("Returned invalid status: " + response.getEntity().getContent().toString() + response.getCode());
+                    throw new RuntimeException("Delete Failed: " + response.getEntity().getContent().toString() + response.getCode());
                 }
 
                 // LOGGER.info("Successfully uploaded file: {}", fileLocation);
@@ -233,7 +255,7 @@ public class WorldUploader {
 
     }
 
-    private void executeTask(List<Operation> task, int worldId, WorkerStatusScreen screen) {
+    private void executeTask(List<Operation> task, int worldId, WorkerStatusScreen screen) throws Exception {
         if (task.isEmpty()) {
             LOGGER.warn("received empty task");
             return;
@@ -254,15 +276,23 @@ public class WorldUploader {
             fileLocations.add(op.path());
         }
 
-        if (opType.equals(FileOperation.UPLOAD)) {
-            this.uploadFileBatched(fileLocations, worldId);
-        } else if (opType.equals(FileOperation.DELETE)) {
-            this.deleteFileBatched(fileLocations, worldId);
-        } else {
-            LOGGER.warn("Unknown operation type: {}", opType);
+        try {
+            if (opType.equals(FileOperation.UPLOAD)) {
+                this.uploadFileBatched(fileLocations, worldId);
+            } else if (opType.equals(FileOperation.DELETE)) {
+                this.deleteFileBatched(fileLocations, worldId);
+            } else {
+                LOGGER.warn("Unknown operation type: {}", opType);
+            }
+        } catch (Exception e) {
+            screen.incrementFailuresCounter();
+            throw e;
         }
 
+
+
     }
+
 
     public List<String> processUpload(int worldId, WorkerStatusScreen screen) throws Exception {
         List<String> errors = Collections.synchronizedList(new ArrayList<>());
@@ -503,10 +533,78 @@ public class WorldUploader {
     }
 
 
+
+    private long estimateDirectorySize(File directory) {
+        long size = 0;
+
+        File[] files = directory.listFiles();
+        if (files != null) {
+            for (File file : files) {
+                if (file.isFile()) {
+                    size += file.length();
+                } else {
+                    size += this.estimateDirectorySize(file);
+                }
+            }
+        }
+
+        return size;
+    }
+
+    private WorldUploadError getFreeDiskSpace(File directory, WorkerStatusScreen screen) throws Exception {
+        LOGGER.info("Estimating directory size");
+        screen.setOverallStatus("Computing space requirements...");
+        long sizeUsed = this.estimateDirectorySize(directory);
+        LOGGER.info("World size: {}", sizeUsed);
+        screen.setOverallStatus("Requesting space requirements information...");
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(new URI(Config.API_ENDPOINT + "/api/get_free_space"))
+                .GET()
+                .header("User-Agent", Config.USER_AGENT)
+                .build();
+
+        HttpResponse<String> res = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+        if (res.statusCode() != 200) {
+            LOGGER.error("Unable to validate space requirements: {}", res.body());
+            return new WorldUploadError(true, "Unable to validate space requirements.");
+        }
+
+        WorldUploadFreeSpaceResponse response = gson.fromJson(res.body(), WorldUploadFreeSpaceResponse.class);
+
+        if (response == null) {
+            LOGGER.error("Server returned invalid JSON: {}", res.body());
+            return new WorldUploadError(true, "The server has returned data that cannot be parsed by the client.");
+        }
+
+        long sizeAvailable = response.data;
+
+        LOGGER.info("Server reported free space: {}", sizeAvailable);
+
+        if (sizeUsed >= sizeAvailable) {
+            LOGGER.error("Server does not have enough free space: {} > {}", sizeUsed, sizeAvailable);
+            return new WorldUploadError(true, String.format(
+                    "Not enough space to store this world. (%d bytes needed > %d bytes available).", sizeUsed, sizeAvailable
+            ));
+        }
+
+        LOGGER.info("Passed conservative free space check");
+
+        return new WorldUploadError(false, "");
+    }
+
+
     public WorldUploadResult uploadWorld(File directory, int gameIdRaw, WorkerStatusScreen progressScreen) throws Exception {
 
         if (!directory.isDirectory()) {
             throw new IllegalArgumentException("Passed a File that is not a directory");
+        }
+
+        WorldUploadError freeSpaceCheck = this.getFreeDiskSpace(directory, progressScreen);
+
+        if (freeSpaceCheck.hasError()) {
+            throw new RuntimeException(freeSpaceCheck.message());
         }
 
         progressScreen.setOverallStatus("Preparing tasks...");

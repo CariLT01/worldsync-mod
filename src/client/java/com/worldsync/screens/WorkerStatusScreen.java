@@ -1,4 +1,4 @@
-package com.worldsync;
+package com.worldsync.screens;
 
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;

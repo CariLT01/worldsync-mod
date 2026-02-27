@@ -1,7 +1,7 @@
-package com.worldsync;
+package com.worldsync.responses;
 
 public class CreateSessionResponse {
     boolean ok;
     String message;
-    int data;
+    public int data;
 }

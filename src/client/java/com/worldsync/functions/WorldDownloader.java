@@ -1,10 +1,15 @@
-package com.worldsync;
+package com.worldsync.functions;
 
 import com.google.gson.Gson;
+import com.worldsync.Config;
+import com.worldsync.LZMACompressor;
+import com.worldsync.responses.CompressionInfoResponse;
+import com.worldsync.responses.DataSyncFileItemJson;
+import com.worldsync.responses.DataSyncResponse;
+import com.worldsync.screens.WorkerStatusScreen;
+import com.worldsync.types.ClientFileOperation;
+import com.worldsync.types.ClientOperation;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.components.Button;
-import net.minecraft.client.gui.screens.ProgressScreen;
-import net.minecraft.network.chat.Component;
 import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,6 +17,7 @@ import org.slf4j.LoggerFactory;
 import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -52,6 +58,29 @@ public class WorldDownloader {
         if (res.statusCode() != 200) {
             throw new RuntimeException("World Does not exist");
         }
+    }
+
+    private Map<String, Boolean> getCompressionInfo(int worldId) throws Exception {
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(new URI(Config.API_ENDPOINT + "/api/world/compression_info?world=" + worldId))
+                .GET()
+                .header("User-Agent", Config.USER_AGENT)
+                .build();
+
+        HttpResponse<String> res = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+        String body = res.body();
+
+        if (res.statusCode() != 200) {
+            throw new RuntimeException("Failed to get compression info: " + body);
+        }
+
+        CompressionInfoResponse response = gson.fromJson(body, CompressionInfoResponse.class);
+        if (response == null) {
+            throw new RuntimeException("Failed to read JSON");
+        }
+
+        return response.data;
     }
 
     private void loopFiles(File parent) throws IOException, NoSuchAlgorithmException {
@@ -125,14 +154,14 @@ public class WorldDownloader {
         return operations;
     }
 
-    private void downloadFile(int worldId, ClientOperation operation) throws Exception {
-        HttpURLConnection httpConn = (HttpURLConnection) new URL(Config.API_ENDPOINT + "/download?world=" + worldId + "&blob=" + operation.hash()).openConnection();
+    private void downloadFile(int worldId, ClientOperation operation, boolean isCompressed) throws Exception {
+        HttpURLConnection httpConn = (HttpURLConnection) new URL(Config.API_ENDPOINT + "/download?client_supports_compression=true&world=" + worldId + "&blob=" + operation.hash()).openConnection();
         int responseCode = httpConn.getResponseCode();
 
         if (responseCode == HttpURLConnection.HTTP_OK) {
             InputStream inputStream = httpConn.getInputStream();
 
-            FileOutputStream outputStream = getFileOutputStream(worldId, operation);
+            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
 
             byte[] buffer = new byte[4096];
             int bytesRead = -1;
@@ -143,6 +172,18 @@ public class WorldDownloader {
 
             outputStream.close();
             inputStream.close();
+
+            byte[] compressedData = outputStream.toByteArray();
+            byte[] decompressedData = compressedData;
+
+            if (isCompressed) {
+                LOGGER.info("Decompressing: {}", operation.hash());
+                decompressedData = LZMACompressor.decompressBytes(compressedData);
+            }
+
+            FileOutputStream fileOutputStream = getFileOutputStream(worldId, operation);
+            fileOutputStream.write(decompressedData);
+            fileOutputStream.close();
 
             LOGGER.info("Cloned {}", operation.path());
 
@@ -164,7 +205,7 @@ public class WorldDownloader {
         return new FileOutputStream(path);
     }
 
-    private void executeTask(ClientOperation operation, WorkerStatusScreen screen, int worldId, Path worldPath) throws Exception {
+    private void executeTask(ClientOperation operation, WorkerStatusScreen screen, int worldId, Path worldPath, Map<String, Boolean> compressionInfo) throws Exception {
         counter.getAndIncrement();
 
         // screen.progressStage(Component.literal("Updating " + operation.path()));
@@ -179,7 +220,10 @@ public class WorldDownloader {
         screen.setWorkerStatus("Worker " + threadId, "Download: " + operation.path());
 
         if (operation.operation() == ClientFileOperation.DOWNLOAD) {
-            this.downloadFile(worldId, operation);
+
+            boolean isCompressed = compressionInfo.get(operation.hash());
+
+            this.downloadFile(worldId, operation, isCompressed);
         } else {
             Path absolutePath = worldPath.resolve(operation.path());
 
@@ -219,6 +263,9 @@ public class WorldDownloader {
         for (DataSyncFileItemJson item : resJson.data) {
             this.serverFileMap.put(item.path, item.hash);
         }
+
+        screen.setOverallStatus("Getting compression info...");
+        Map<String, Boolean> compressionInfo = this.getCompressionInfo(worldId);
 
         screen.setOverallStatus("Computing delta");
         // screen.progressStage(Component.literal("Computing delta..."));
@@ -263,7 +310,7 @@ public class WorldDownloader {
 
         List<Callable<Void>> callables = operations.stream().map(op -> (Callable<Void>) () -> {
             try {
-                this.executeTask(op, screen, worldId, worldPath);
+                this.executeTask(op, screen, worldId, worldPath, compressionInfo);
             } catch (Exception e) {
                 errors.add("file download failed: " + op.path() + " error: " + e.getMessage());
                 LOGGER.error("An error occurred while downloading file: ", e);

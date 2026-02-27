@@ -1,10 +1,8 @@
-package com.worldsync;
+package com.worldsync.screens;
 
 import net.minecraft.client.gui.layouts.LinearLayout;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
-
-import javax.sound.sampled.Line;
 
 public class WorldSelectionScreen extends Screen {
     private final Screen parent;
