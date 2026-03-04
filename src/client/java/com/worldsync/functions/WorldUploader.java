@@ -157,6 +157,8 @@ public class WorldUploader {
                 File filePathObj = new File(absolutePath.normalize().toString());
                 CompressionResult processedFileData = this.processFileForSize(filePathObj);
 
+                screen.setWorkerStatus("Worker " + workerId, String.format("pre-process: %s/%s", index, fileLocations.size()));
+
                 String fileHash = hashes.get(index);
 
                 builder.addBinaryBody("files", processedFileData.processedData(), ContentType.DEFAULT_BINARY, filePathObj.getName());
