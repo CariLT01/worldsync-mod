@@ -3,17 +3,21 @@ package com.worldsync.functions;
 import com.google.gson.Gson;
 import com.worldsync.Config;
 import com.worldsync.LZMACompressor;
+import com.worldsync.Utils;
+import com.worldsync.http.ProgressHttpEntityWrapper;
 import com.worldsync.responses.CreateSessionResponse;
 import com.worldsync.responses.DataSyncFileItemJson;
 import com.worldsync.responses.DataSyncResponse;
 import com.worldsync.responses.WorldUploadFreeSpaceResponse;
 import com.worldsync.screens.WorkerStatusScreen;
 import com.worldsync.types.*;
+import net.minecraft.client.Minecraft;
 import org.apache.hc.client5.http.classic.methods.HttpPost;
 import org.apache.hc.client5.http.entity.mime.MultipartEntityBuilder;
 import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
 import org.apache.hc.client5.http.impl.classic.HttpClients;
 import org.apache.hc.core5.http.ContentType;
+import org.apache.hc.core5.http.HttpEntity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -136,7 +140,7 @@ public class WorldUploader {
         }
     }
 
-    private void uploadFileBatched(List<String> fileLocations, int worldId) throws Exception {
+    private void uploadFileBatched(List<String> fileLocations, List<String> hashes, int worldId, String taskInfo, int workerId, WorkerStatusScreen screen) throws Exception {
 
 
         try (CloseableHttpClient client = HttpClients.createDefault()) {
@@ -147,20 +151,38 @@ public class WorldUploader {
 
             MultipartEntityBuilder builder = MultipartEntityBuilder.create();
 
+            int index = 0;
             for (String filePath : fileLocations) {
                 Path absolutePath = this.path.resolve(filePath);
                 File filePathObj = new File(absolutePath.normalize().toString());
                 CompressionResult processedFileData = this.processFileForSize(filePathObj);
 
+                String fileHash = hashes.get(index);
+
                 builder.addBinaryBody("files", processedFileData.processedData(), ContentType.DEFAULT_BINARY, filePathObj.getName());
                 builder.addTextBody("client_is_compressed", processedFileData.isCompressed() ? "true" : "false");
+                builder.addTextBody("client_hashes", fileHash);
                 builder.addTextBody("paths", filePath);
+
+                index++;
             }
 
             builder.addTextBody("world", String.valueOf(worldId));
             builder.addTextBody("client_compressed", "true");
 
-            post.setEntity(builder.build());
+            // post.setEntity(builder.build());
+
+            HttpEntity originalEntity = builder.build();
+            ProgressHttpEntityWrapper trackingEntity = new ProgressHttpEntityWrapper(originalEntity, (written, total) -> {
+                Minecraft.getInstance().execute(() -> {
+                    String bytesFormattedWritten = Utils.formatBytes(written);
+                    String bytesFormattedTotal = Utils.formatBytes(total);
+                    float percentageWritten = ((float) written / total) * 100.0f;
+                    screen.setWorkerStatus("Worker " + workerId,
+                            String.format("%s %s/%s (%.2f)", taskInfo, bytesFormattedWritten, bytesFormattedTotal, percentageWritten));
+                });
+            });
+            post.setEntity(trackingEntity);
 
             client.execute(post, response -> {
                 if (response.getCode() != 200) {
@@ -268,17 +290,23 @@ public class WorldUploader {
 
         FileOperation opType = task.getFirst().operation();
         LOGGER.info("Executing task of size: {} type: {}", task.size(), opType);
+        String taskInfo = String.format("Executing %s %s tasks", task.size(), opType);
         screen.setWorkerStatus("Worker " + threadId,
-                String.format("Executing %s %s tasks", task.size(), opType));
+               taskInfo);
 
         List<String> fileLocations = new ArrayList<>();
         for (Operation op : task) {
             fileLocations.add(op.path());
         }
 
+        List<String> fileHashes = new ArrayList<>();
+        for (Operation op : task) {
+            fileHashes.add(op.hash());
+        }
+
         try {
             if (opType.equals(FileOperation.UPLOAD)) {
-                this.uploadFileBatched(fileLocations, worldId);
+                this.uploadFileBatched(fileLocations, fileHashes, worldId, taskInfo, (int) threadId, screen);
             } else if (opType.equals(FileOperation.DELETE)) {
                 this.deleteFileBatched(fileLocations, worldId);
             } else {
