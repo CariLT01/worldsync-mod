@@ -2,6 +2,7 @@ package com.worldsync.mixin.client;
 
 import com.worldsync.screens.DownloadWorldScreen;
 import com.worldsync.screens.PackWorldScreen;
+import com.worldsync.screens.UnpackWorldScreen;
 import com.worldsync.screens.WorldSyncScreen;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
@@ -32,5 +33,9 @@ public class SelectWorldScreenMixin extends Screen  {
         this.addRenderableWidget(Button.builder(Component.literal("Pack World"), (button) -> {
             this.minecraft.setScreen(new PackWorldScreen(this));
         }).bounds(this.width - 85, 5, 80, 20).build());
+
+        this.addRenderableWidget(Button.builder(Component.literal("Unpack World"), (button) -> {
+            this.minecraft.setScreen(new UnpackWorldScreen(this));
+        }).bounds(this.width - 85, 33, 80, 20).build());
     }
 }
