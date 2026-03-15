@@ -44,20 +44,18 @@ dependencies {
 	implementation 'org.apache.httpcomponents.core5:httpcore5:5.2.1'
 	implementation 'org.apache.httpcomponents.core5:httpcore5-h2:5.2.1'
 	implementation 'org.tukaani:xz:1.9'
-	implementation "org.lwjgl:lwjgl-nfd:3.3.3"
+	modImplementation "org.lwjgl:lwjgl-nfd:3.3.3"
 
 
 	include 'org.apache.httpcomponents.client5:httpclient5:5.2.1'
 	include 'org.apache.httpcomponents.core5:httpcore5:5.2.1'
 	include 'org.apache.httpcomponents.core5:httpcore5-h2:5.2.1'
 	include 'org.tukaani:xz:1.9'
-	include "org.lwjgl:lwjgl-nfd:3.3.3:natives-windows"
-	include "org.lwjgl:lwjgl-nfd:3.3.3:natives-linux"
-	include "org.lwjgl:lwjgl-nfd:3.3.3:natives-macos"
+	include "org.lwjgl:lwjgl-nfd:3.3.3"
 
-	runtimeOnly "org.lwjgl:lwjgl-nfd:3.3.3:natives-windows"
-	runtimeOnly "org.lwjgl:lwjgl-nfd:3.3.3:natives-linux"
-	runtimeOnly "org.lwjgl:lwjgl-nfd:3.3.3:natives-macos"
+	modRuntimeOnly  "org.lwjgl:lwjgl-nfd:3.3.3:natives-windows"
+	modRuntimeOnly  "org.lwjgl:lwjgl-nfd:3.3.3:natives-linux"
+	modRuntimeOnly  "org.lwjgl:lwjgl-nfd:3.3.3:natives-macos"
 }
 
 processResources {
