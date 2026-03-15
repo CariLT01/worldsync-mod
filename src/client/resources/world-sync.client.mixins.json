@@ -3,7 +3,8 @@
 	"package": "com.worldsync.mixin.client",
 	"compatibilityLevel": "JAVA_21",
 	"client": [
-		"SelectWorldScreenMixin"
+		"SelectWorldScreenMixin",
+		"CreateWorldScreenMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1
