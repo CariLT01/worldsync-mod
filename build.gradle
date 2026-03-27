@@ -1,5 +1,5 @@
 plugins {
-	id 'net.fabricmc.fabric-loom-remap' version "${loom_version}"
+	id 'net.fabricmc.fabric-loom' version "${loom_version}"
 	id 'maven-publish'
 }
 
@@ -34,17 +34,16 @@ loom {
 dependencies {
 	// To change the versions see the gradle.properties file
 	minecraft "com.mojang:minecraft:${project.minecraft_version}"
-	mappings loom.officialMojangMappings()
-	modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
 
 	// Fabric API. This is technically optional, but you probably want it anyway.
-	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
 
 	implementation 'org.apache.httpcomponents.client5:httpclient5:5.2.1'
 	implementation 'org.apache.httpcomponents.core5:httpcore5:5.2.1'
 	implementation 'org.apache.httpcomponents.core5:httpcore5-h2:5.2.1'
 	implementation 'org.tukaani:xz:1.9'
-	modImplementation "org.lwjgl:lwjgl-nfd:3.3.3"
+	implementation "org.lwjgl:lwjgl-nfd:3.3.3"
 
 
 	include 'org.apache.httpcomponents.client5:httpclient5:5.2.1'
@@ -53,9 +52,12 @@ dependencies {
 	include 'org.tukaani:xz:1.9'
 	include "org.lwjgl:lwjgl-nfd:3.3.3"
 
-	modRuntimeOnly  "org.lwjgl:lwjgl-nfd:3.3.3:natives-windows"
-	modRuntimeOnly  "org.lwjgl:lwjgl-nfd:3.3.3:natives-linux"
-	modRuntimeOnly  "org.lwjgl:lwjgl-nfd:3.3.3:natives-macos"
+	runtimeOnly  "org.lwjgl:lwjgl-nfd:3.3.3:natives-windows"
+	runtimeOnly  "org.lwjgl:lwjgl-nfd:3.3.3:natives-linux"
+	runtimeOnly  "org.lwjgl:lwjgl-nfd:3.3.3:natives-macos"
+	include  "org.lwjgl:lwjgl-nfd:3.3.3:natives-windows"
+	include  "org.lwjgl:lwjgl-nfd:3.3.3:natives-linux"
+	include  "org.lwjgl:lwjgl-nfd:3.3.3:natives-macos"
 }
 
 processResources {
@@ -67,7 +69,7 @@ processResources {
 }
 
 tasks.withType(JavaCompile).configureEach {
-	it.options.release = 21
+	it.options.release = 25
 }
 
 java {
@@ -76,8 +78,8 @@ java {
 	// If you remove this line, sources will not be generated.
 	withSourcesJar()
 
-	sourceCompatibility = JavaVersion.VERSION_21
-	targetCompatibility = JavaVersion.VERSION_21
+	sourceCompatibility = JavaVersion.VERSION_25
+	targetCompatibility = JavaVersion.VERSION_25
 }
 
 jar {

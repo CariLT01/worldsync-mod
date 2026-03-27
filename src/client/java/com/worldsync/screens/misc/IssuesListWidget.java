@@ -1,7 +1,7 @@
 package com.worldsync.screens.misc;
 
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.ObjectSelectionList;
 import net.minecraft.network.chat.Component;
 import org.jetbrains.annotations.NotNull;
@@ -33,12 +33,13 @@ public class IssuesListWidget extends ObjectSelectionList<IssuesListWidget.Issue
             return Component.literal(text);
         }
 
+
         // 3. Override the standard 'render' method and use the provided 'top' and 'left' arguments
         @Override
-        public void renderContent(GuiGraphics graphics, int entryWidth, int entryHeight, boolean isSelected, float partialTicks) {
+        public void extractContent(GuiGraphicsExtractor graphics, int entryWidth, int entryHeight, boolean isSelected, float partialTicks) {
             // In 1.21 renderContent, (0,0) is the top-left of the slot.
             // We use '0' for X and '2' for Y to center it slightly in the 20px tall row.
-            graphics.drawString(Minecraft.getInstance().font, this.text, 5, 2, 0xFFFF5555, false);
+            graphics.text(Minecraft.getInstance().font, this.text, 5, 2, 0xFFFF5555, false);
         }
     }
 }

@@ -1,6 +1,6 @@
 package com.worldsync.screens;
 
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
@@ -50,18 +50,18 @@ public class WorkerStatusScreen extends Screen {
     }
 
     @Override
-    public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
+    public void extractRenderState(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float partialTick) {
 
         frameCounter.getAndIncrement();
 
-        guiGraphics.drawCenteredString(this.font, this.taskName, this.width / 2, 40, 0xFFFFFFFF);
+        guiGraphics.centeredText(this.font, this.taskName, this.width / 2, 40, 0xFFFFFFFF);
 
-        guiGraphics.drawCenteredString(this.font, this.overallStatus, this.width / 2, 80, 0xAAAAAAFF);
+        guiGraphics.centeredText(this.font, this.overallStatus, this.width / 2, 80, 0xAAAAAAFF);
 
         int c = 0;
         int loadingAccumulated = (int) Math.floor((float) frameCounter.get() / 15);
         for (Map.Entry<String, String> entry : this.workerStatus.entrySet()) {
-            guiGraphics.drawCenteredString(this.font, String.format(
+            guiGraphics.centeredText(this.font, String.format(
                     "> [%s] %s %s",
                     entry.getKey(),
                     entry.getValue(),
@@ -71,10 +71,10 @@ public class WorkerStatusScreen extends Screen {
         }
 
         if (failuresCounter.get() > 0) {
-            guiGraphics.drawCenteredString(this.font, String.format("%s failure(s)", failuresCounter.get()), this.width / 2, 460, 0xFF0000FF);
+            guiGraphics.centeredText(this.font, String.format("%s failure(s)", failuresCounter.get()), this.width / 2, 460, 0xFF0000FF);
         }
 
-        super.render(guiGraphics, mouseX, mouseY, partialTick);
+        super.extractRenderState(guiGraphics, mouseX, mouseY, partialTick);
 
 
     }

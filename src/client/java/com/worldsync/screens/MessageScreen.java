@@ -1,6 +1,6 @@
 package com.worldsync.screens;
 
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
@@ -46,12 +46,12 @@ public class MessageScreen extends Screen {
     }
 
     @Override
-    public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
+    public void extractRenderState(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float partialTick) {
 
-        guiGraphics.drawCenteredString(this.font, this.message, this.width / 2, 40, 0xFFFFFFFF);
+        guiGraphics.centeredText(this.font, this.message, this.width / 2, 40, 0xFFFFFFFF);
 
         if (!issues.isEmpty()) {
-            guiGraphics.drawCenteredString(this.font, "Errors occurred while executing tasks: ", this.width / 2, 60, 0xFFFFFFFF);
+            guiGraphics.centeredText(this.font, "Errors occurred while executing tasks: ", this.width / 2, 60, 0xFFFFFFFF);
         }
 
 
@@ -70,12 +70,12 @@ public class MessageScreen extends Screen {
         for (String line : issues) {
             List<FormattedCharSequence> lines = this.font.split(Component.literal(line), width);
             for (FormattedCharSequence charSequence : lines) {
-                guiGraphics.drawString(this.font, charSequence, left, top + lineHeight * lineCounter, 0xFFFF0000);
+                guiGraphics.centeredText(this.font, charSequence, left, top + lineHeight * lineCounter, 0xFFFF0000);
                 lineCounter++;
             }
         }
 
-        super.render(guiGraphics, mouseX, mouseY, partialTick);
+        super.extractRenderState(guiGraphics, mouseX, mouseY, partialTick);
 
 
     }
